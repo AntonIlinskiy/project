@@ -1,28 +1,41 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from app import models, schemas, crud
-from app.database import engine
-from app.deps import get_db
+from app.database import SessionLocal, engine
+from fastapi.middleware.cors import CORSMiddleware
+from app.schemas import WalletOperation
 
+# Создаём таблицы (если не созданы)
 models.Base.metadata.create_all(bind=engine)
 
+# Инициализируем FastAPI
 app = FastAPI()
 
+# Настраиваем CORS (можно убрать, если не нужно)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/api/v1/wallets/{wallet_uuid}/operation")
-def operate_wallet(wallet_uuid: str, operation: schemas.WalletOperation, db: Session = Depends(get_db)):
+# Получение сессии БД
+def get_db():
+    db = SessionLocal()
     try:
-        wallet = crud.apply_operation(db, wallet_uuid, operation)
-        return {"uuid": wallet.uuid, "balance": float(wallet.balance)}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        yield db
+    finally:
+        db.close()
 
+# Эндпоинт для операций с кошельком
+@app.post("/api/v1/wallets/{wallet_uuid}/operation")
+def operate_wallet(wallet_uuid: str, operation: WalletOperation, db: Session = Depends(get_db)):
+    wallet = crud.apply_operation(db, wallet_uuid, operation)
+    return wallet
 
+# Эндпоинт для получения информации о кошельке
 @app.get("/api/v1/wallets/{wallet_uuid}")
-def get_balance(wallet_uuid: str, db: Session = Depends(get_db)):
+def get_wallet(wallet_uuid: str, db: Session = Depends(get_db)):
     wallet = crud.get_wallet(db, wallet_uuid)
-    if not wallet:
-        raise HTTPException(status_code=404, detail="Wallet not found")
-    return {"uuid": wallet.uuid, "balance": float(wallet.balance)}
-
-
+    return wallet
